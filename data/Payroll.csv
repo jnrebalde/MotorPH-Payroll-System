@@ -1,0 +1,5 @@
+Payroll ID,Employee Number,First Name,Last Name,Position,Employment Status,Payroll Date,Cutoff,Regular Hours,Overtime Hours,Basic Salary,Overtime Pay,Allowances,Other Income,Total Earnings,SSS,PhilHealth,Pag-IBIG,Withholding Tax,Loan Deduction,Other Deductions,Total Deductions,Net Pay
+PR-10001-20261101-FIRST,10001,Jose,Crisostomo,HRManager,Regular,2026-11-16,FIRST,24.00,3.00,31335.00,0.00,0,1000,32335.00,0,0,0,1186.56,0,14422.68,15609.24,16725.76
+PR-10001-20261116-SECOND,10001,Jose,Crisostomo,HRManager,Regular,2026-12-01,SECOND,16.00,0.00,31335.00,0.00,0,0.00,31335.00,1750.00,1566.75,200.00,356.18,0,18543.45,22416.38,8918.62
+PR-10002-20261101-FIRST,10002,Christian,Mata,AccountTeamLeader,Regular,2026-11-16,FIRST,8.00,0.00,21487.50,0.00,0,0.00,21487.50,0,0,0,0.00,0,12715.89,12715.89,8771.61
+PR-10003-20261101-FIRST,10003,Brad,SanJose,HRTeamLeader,Regular,2026-11-16,FIRST,8.00,0.00,21487.50,0.00,0,0.00,21487.50,0,0,0,0.00,0,11303.01,11303.01,10184.49
