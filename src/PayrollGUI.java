@@ -482,8 +482,6 @@ public class PayrollGUI extends JFrame {
         JTextField startField = new JTextField();
         JTextField endField = new JTextField();
         JTextField payrollDateField = new JTextField(LocalDate.now().toString());
-        JTextField regularOTHoursField = new JTextField("0");
-        JTextField sundayOTHoursField = new JTextField("0");
         JTextField otherIncomeField = new JTextField("0.00");
         JTextField loanField = new JTextField("0.00");
         JTextField otherDeductionField = new JTextField("0.00");
@@ -526,8 +524,7 @@ public class PayrollGUI extends JFrame {
         monthChoice.setPreferredSize(new Dimension(300, 28));
 
         JTextField[] inputFields = {startField, endField, payrollDateField,
-                regularOTHoursField, sundayOTHoursField, otherIncomeField,
-                loanField, otherDeductionField};
+                otherIncomeField, loanField, otherDeductionField};
         for (JTextField field : inputFields) {
             field.setColumns(18);
             field.setPreferredSize(new Dimension(300, 28));
@@ -552,8 +549,6 @@ public class PayrollGUI extends JFrame {
         addPayrollFormRow(form, constraints, row++, "Cutoff start (YYYY-MM-DD)", startField);
         addPayrollFormRow(form, constraints, row++, "Cutoff end (YYYY-MM-DD)", endField);
         addPayrollFormRow(form, constraints, row++, "Payroll date (YYYY-MM-DD)", payrollDateField);
-        addPayrollFormRow(form, constraints, row++, "Regular overtime hours (1.25x)", regularOTHoursField);
-        addPayrollFormRow(form, constraints, row++, "Sunday overtime hours (1.30x)", sundayOTHoursField);
         addPayrollFormRow(form, constraints, row++, "Other earnings (allowance / incentives / others)", otherIncomeField);
         addPayrollFormRow(form, constraints, row++, "Loan deduction", loanField);
         addPayrollFormRow(form, constraints, row, "Other deductions", otherDeductionField);
@@ -578,8 +573,6 @@ public class PayrollGUI extends JFrame {
                         "Payroll date must be after the payroll cutoff end date (" + cutoffEnd + ").");
             }
 
-            BigDecimal regularOTHours = amount(regularOTHoursField.getText());
-            BigDecimal sundayOTHours = amount(sundayOTHoursField.getText());
             BigDecimal otherIncome = amount(otherIncomeField.getText());
             BigDecimal loanAmount = amount(loanField.getText());
             BigDecimal otherDeductions = amount(otherDeductionField.getText());
@@ -625,10 +618,26 @@ public class PayrollGUI extends JFrame {
                 throw new IllegalArgumentException("Unsupported employee type.");
             }
 
+            // Overtime is derived directly from attendance records.
+            // Sunday overtime uses the Sunday multiplier; other overtime uses the regular multiplier.
+            BigDecimal regularOvertimeHours = BigDecimal.ZERO;
+            BigDecimal sundayOvertimeHours = BigDecimal.ZERO;
+            for (AttendanceRecord attendance : attendanceCSV.getAttendanceRecords()) {
+                if (attendance.getEmployee().getEmployeeNumber().equals(employee.getEmployeeNumber())
+                        && !attendance.getDate().isBefore(cutoffStart)
+                        && !attendance.getDate().isAfter(cutoffEnd)) {
+                    BigDecimal attendanceOvertime = attendance.calculateOvertimeHours();
+                    if (attendance.getDate().getDayOfWeek() == java.time.DayOfWeek.SUNDAY) {
+                        sundayOvertimeHours = sundayOvertimeHours.add(attendanceOvertime);
+                    } else {
+                        regularOvertimeHours = regularOvertimeHours.add(attendanceOvertime);
+                    }
+                }
+            }
             BigDecimal regularOTRate = hourlyRate.multiply(new BigDecimal("1.25"));
             BigDecimal sundayOTRate = hourlyRate.multiply(new BigDecimal("1.30"));
-            BigDecimal overtimePay = regularOTRate.multiply(regularOTHours)
-                    .add(sundayOTRate.multiply(sundayOTHours))
+            BigDecimal overtimePay = regularOTRate.multiply(regularOvertimeHours)
+                    .add(sundayOTRate.multiply(sundayOvertimeHours))
                     .setScale(2, java.math.RoundingMode.HALF_UP);
 
             // Statutory contributions are deducted on the second cutoff only.
@@ -813,18 +822,6 @@ public class PayrollGUI extends JFrame {
         return days.size();
     }
 
-    private BigDecimal totalRegularHours(Employee employee, List<AttendanceRecord> records,
-                                         LocalDate start, LocalDate end) {
-        BigDecimal hours = BigDecimal.ZERO;
-        for (AttendanceRecord record : records) {
-            if (record.getEmployee().getEmployeeNumber().equals(employee.getEmployeeNumber())
-                    && !record.getDate().isBefore(start) && !record.getDate().isAfter(end)) {
-                hours = hours.add(record.calculateRegularHours());
-            }
-        }
-        return hours;
-    }
-
     private BigDecimal amount(String value) {
         BigDecimal amount = new BigDecimal(value.trim());
         if (amount.compareTo(BigDecimal.ZERO) < 0) {
@@ -843,6 +840,9 @@ public class PayrollGUI extends JFrame {
 
         try {
             DefaultTableModel savedRecords = csvManager.readCSV(payrollFile);
+            EmployeeCSV employeeCSV = new EmployeeCSV();
+            ArrayList<Employee> employees = employeeCSV.getEmployees();
+            payrollRecords = csvManager.loadPayrollRecords(payrollFile, employees);
             int payrollIdColumn = findPayrollColumn(savedRecords, "Payroll ID");
             int employeeNumberColumn = findPayrollColumn(savedRecords, "Employee Number");
             int firstNameColumn = findPayrollColumn(savedRecords, "First Name");
@@ -877,6 +877,7 @@ public class PayrollGUI extends JFrame {
                         formatSavedMoney(savedRecords.getValueAt(row, netPayColumn))
                 });
             }
+            rebuildEmployeeList();
         } catch (IOException | RuntimeException ex) {
             JOptionPane.showMessageDialog(this,
                     "Unable to load saved payroll records from data/Payroll.csv: "
@@ -1123,37 +1124,6 @@ public class PayrollGUI extends JFrame {
         }
     }
 
-    private JComponent buildPlaceholderPage(String titleText, String message) {
-        JPanel page = new JPanel(new BorderLayout());
-        page.setBackground(BACKGROUND);
-        page.setBorder(new EmptyBorder(22, 24, 22, 24));
-
-        JLabel title = new JLabel(titleText);
-        title.setFont(new Font("SansSerif", Font.BOLD, 23));
-        title.setForeground(NAVY);
-
-        JPanel card = whiteCard(new BorderLayout());
-        card.setBorder(new EmptyBorder(22, 22, 22, 22));
-        JLabel note = new JLabel("<html><div style='width:420px'>" +
-                message + "</div></html>");
-        note.setForeground(MUTED);
-        note.setFont(new Font("SansSerif", Font.PLAIN, 15));
-        card.add(note, BorderLayout.NORTH);
-
-        page.add(title, BorderLayout.NORTH);
-        page.add(card, BorderLayout.CENTER);
-        return page;
-    }
-
-    private JPanel buildMetricCards() {
-        JPanel row = new JPanel(new GridLayout(1, 3, 14, 0));
-        row.setOpaque(false);
-        row.add(metricCard("GROSS PAY", grossValue, new Color(49, 111, 235)));
-        row.add(metricCard("TOTAL DEDUCTIONS", deductionValue, new Color(220, 75, 85)));
-        row.add(metricCard("NET PAY", netValue, new Color(20, 155, 105)));
-        return row;
-    }
-
     private JPanel metricCard(String title, JLabel value, Color accent) {
         JPanel card = whiteCard(new BorderLayout(8, 6));
         card.setBorder(new EmptyBorder(15, 16, 15, 16));
@@ -1199,13 +1169,6 @@ public class PayrollGUI extends JFrame {
         pageLayout.show(pages, page);
     }
 
-    public void setPayrollRecords(List<PayrollRecord> records) {
-        if (records == null) {
-            throw new IllegalArgumentException("Payroll records cannot be null.");
-        }
-        payrollRecords = new ArrayList<>(records);
-        rebuildEmployeeList();
-    }
 
     private void rebuildEmployeeList() {
         employeeListModel.clear();
@@ -1346,41 +1309,12 @@ public class PayrollGUI extends JFrame {
                 new String[][]{{"Status", "Waiting for payroll data"}});
     }
 
-    private void importPayrollCsv() {
-        JFileChooser chooser = new JFileChooser();
-        chooser.setDialogTitle("Select payroll CSV");
-
-        if (chooser.showOpenDialog(this) != JFileChooser.APPROVE_OPTION) {
-            return;
-        }
-
-        try {
-            DefaultTableModel model =
-                    csvManager.readCSV(chooser.getSelectedFile().toPath());
-
-            JTable table = new JTable(model);
-            table.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
-
-            JOptionPane.showMessageDialog(
-                    this,
-                    new JScrollPane(table),
-                    "Imported CSV Preview",
-                    JOptionPane.PLAIN_MESSAGE);
-
-        } catch (IOException | IllegalArgumentException ex) {
-            JOptionPane.showMessageDialog(
-                    this,
-                    ex.getMessage(),
-                    "CSV Import Failed",
-                    JOptionPane.ERROR_MESSAGE);
-        }
-    }
-
     private void exportPayroll() {
+        refreshPayrollTable();
         if (payrollRecords.isEmpty()) {
             JOptionPane.showMessageDialog(
                     this,
-                    "No calculated payroll records are available to export.");
+                    "No saved payroll records are available to export.");
             return;
         }
 
@@ -1408,26 +1342,6 @@ public class PayrollGUI extends JFrame {
                     "Export Failed",
                     JOptionPane.ERROR_MESSAGE);
         }
-    }
-
-    private void viewSelectedPayslip() {
-        PayrollRecord record = employeeList.getSelectedValue();
-
-        if (record == null) {
-            JOptionPane.showMessageDialog(this, "Select an employee first.");
-            return;
-        }
-
-        JTextArea area = new JTextArea(
-                new Payslip(record).generatePayslip(), 28, 55);
-        area.setEditable(false);
-        area.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
-
-        JOptionPane.showMessageDialog(
-                this,
-                new JScrollPane(area),
-                "Employee Payslip",
-                JOptionPane.INFORMATION_MESSAGE);
     }
 
     private static JLabel valueLabel() {

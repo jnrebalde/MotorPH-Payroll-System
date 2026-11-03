@@ -1,33 +1,51 @@
-import org.apache.commons.csv.CSVFormat;
-import org.apache.commons.csv.CSVRecord;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
-import java.io.File;
-import java.io.FileReader;
-import java.util.ArrayList;
+import java.nio.file.Path;
+import java.util.List;
 
-/** Employee-only home page. The logged-in employee can view only their own profile and payslips. */
+/**
+ * Employee-only home page.
+ * The logged-in employee can view only their own profile and payslips.
+ */
 @SuppressWarnings({"serial", "this-escape"})
 public class EmployeePayrollHome extends JFrame {
+
     private static final Color NAVY = new Color(16, 43, 80);
     private static final Color BACKGROUND = new Color(245, 247, 250);
+
     private final String employeeId;
     private final Employee employee;
+    private final PayrollCSV payrollCSV = new PayrollCSV();
+    private final Path payrollFile = Path.of("data", "Payroll.csv");
+
+    private List<PayrollRecord> employeePayrollRecords;
+
     private final DefaultTableModel payslipModel = new DefaultTableModel(
-            new String[]{"Payroll ID", "Payroll Date", "Cutoff", "Gross Pay", "Deductions", "Net Pay"}, 0) {
-        @Override public boolean isCellEditable(int row, int column) { return false; }
+            new String[]{"Payroll ID", "Payroll Date", "Cutoff",
+                    "Gross Pay", "Deductions", "Net Pay"}, 0) {
+
+        @Override
+        public boolean isCellEditable(int row, int column) {
+            return false;
+        }
     };
 
     public EmployeePayrollHome(String employeeId) {
         this.employeeId = employeeId;
+
         EmployeeCSV employeeCSV = new EmployeeCSV();
         Employee found = null;
+
         for (Employee item : employeeCSV.getEmployees()) {
-            if (item.getEmployeeNumber().equalsIgnoreCase(employeeId)) found = item;
+            if (item.getEmployeeNumber().equalsIgnoreCase(employeeId)) {
+                found = item;
+                break;
+            }
         }
+
         employee = found;
 
         setTitle("MotorPH Payroll System - Employee Home");
@@ -52,11 +70,13 @@ public class EmployeePayrollHome extends JFrame {
         JPanel profile = new JPanel(new GridLayout(0, 2, 12, 10));
         profile.setBackground(Color.WHITE);
         profile.setBorder(BorderFactory.createTitledBorder("My Employee Record"));
+
         if (employee == null) {
             profile.add(new JLabel("Employee record not found for: " + employeeId));
         } else {
             addDetail(profile, "Employee Number", employee.getEmployeeNumber());
-            addDetail(profile, "Full Name", employee.getFirstName() + " " + employee.getLastName());
+            addDetail(profile, "Full Name",
+                    employee.getFirstName() + " " + employee.getLastName());
             addDetail(profile, "Position", employee.getPosition());
             addDetail(profile, "Employment Status", employee.getEmploymentStatus());
             addDetail(profile, "Birth Date", employee.getBirthDate().toString());
@@ -69,11 +89,16 @@ public class EmployeePayrollHome extends JFrame {
         payslipTable.setRowHeight(28);
         payslipTable.setAutoCreateRowSorter(true);
         payslipTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+
         payslipTable.addMouseListener(new java.awt.event.MouseAdapter() {
-            @Override public void mouseClicked(java.awt.event.MouseEvent event) {
-                if (event.getClickCount() == 2) showSelectedPayslip(payslipTable);
+            @Override
+            public void mouseClicked(java.awt.event.MouseEvent event) {
+                if (event.getClickCount() == 2) {
+                    showSelectedPayslip(payslipTable);
+                }
             }
         });
+
         JPanel payslips = new JPanel(new BorderLayout());
         payslips.setBackground(Color.WHITE);
         payslips.setBorder(BorderFactory.createTitledBorder("My Payslips"));
@@ -81,8 +106,13 @@ public class EmployeePayrollHome extends JFrame {
 
         JButton refresh = new JButton("Refresh Payslips");
         refresh.addActionListener(e -> loadPayslips());
+
         JButton logout = new JButton("Log out");
-        logout.addActionListener(e -> { dispose(); new Login().setVisible(true); });
+        logout.addActionListener(e -> {
+            dispose();
+            new Login().setVisible(true);
+        });
+
         JPanel actions = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         actions.setOpaque(false);
         actions.add(refresh);
@@ -92,67 +122,120 @@ public class EmployeePayrollHome extends JFrame {
         center.setOpaque(false);
         center.add(profile, BorderLayout.NORTH);
         center.add(payslips, BorderLayout.CENTER);
+
         content.add(center, BorderLayout.CENTER);
         content.add(actions, BorderLayout.SOUTH);
+
         add(content, BorderLayout.CENTER);
+
         loadPayslips();
     }
 
-    private void showSelectedPayslip(JTable table) {
-        int selected = table.getSelectedRow();
-        if (selected < 0) return;
-        int modelRow = table.convertRowIndexToModel(selected);
-        String payrollId = payslipModel.getValueAt(modelRow, 0).toString();
-        File file = new File("data/Payroll.csv");
-        try (FileReader reader = new FileReader(file)) {
-            Iterable<CSVRecord> records = CSVFormat.DEFAULT.parse(reader);
-            int row = 0;
-            StringBuilder details = new StringBuilder();
-            for (CSVRecord record : records) {
-                if (row++ == 0 || record.size() < 23) continue;
-                if (record.get(0).equals(payrollId)
-                        && record.get(1).equalsIgnoreCase(employeeId)) {
-                    String[] labels = {"Payroll ID", "Employee Number", "First Name", "Last Name",
-                            "Position", "Employment Status", "Payroll Date", "Cutoff", "Regular Hours",
-                            "Overtime Hours", "Basic Salary", "Overtime Pay", "Allowances", "Other Income",
-                            "Total Earnings", "SSS", "PhilHealth", "Pag-IBIG", "Withholding Tax",
-                            "Loan Deduction", "Other Deductions", "Total Deductions", "Net Pay"};
-                    for (int i = 0; i < labels.length; i++) {
-                        details.append(labels[i]).append(": ").append(record.get(i)).append("\n");
-                    }
-                    break;
-                }
+    /**
+     * Loads the selected employee's saved payroll records.
+     */
+    private void loadPayslips() {
+        payslipModel.setRowCount(0);
+
+        try {
+            EmployeeCSV employeeCSV = new EmployeeCSV();
+
+            employeePayrollRecords = payrollCSV.getPayrollRecordsByEmployee(
+                    payrollFile,
+                    employeeId,
+                    employeeCSV.getEmployees()
+            );
+
+            for (PayrollRecord record : employeePayrollRecords) {
+                payslipModel.addRow(new Object[]{
+                        record.getPayrollID(),
+                        record.getPayrollDate(),
+                        record.getCutoff(),
+                        record.getTotalEarnings(),
+                        record.getTotalDeductions(),
+                        record.getNetPay()
+                });
             }
-            JOptionPane.showMessageDialog(this, details.length() == 0
-                    ? "Payslip record was not found." : details.toString(),
-                    "Payslip Details", JOptionPane.INFORMATION_MESSAGE);
+
         } catch (Exception ex) {
-            JOptionPane.showMessageDialog(this, "Unable to open payslip: " + ex.getMessage(),
-                    "Payslip Error", JOptionPane.ERROR_MESSAGE);
+            employeePayrollRecords = null;
+
+            JOptionPane.showMessageDialog(
+                    this,
+                    "Unable to load payslips: " + ex.getMessage(),
+                    "Payslip Error",
+                    JOptionPane.ERROR_MESSAGE
+            );
         }
+    }
+
+    /**
+     * Displays the complete details of the selected payroll record.
+     */
+    private void showSelectedPayslip(JTable table) {
+        int selectedRow = table.getSelectedRow();
+
+        if (selectedRow < 0 || employeePayrollRecords == null) {
+            return;
+        }
+
+        int modelRow = table.convertRowIndexToModel(selectedRow);
+
+        if (modelRow < 0 || modelRow >= employeePayrollRecords.size()) {
+            return;
+        }
+
+        PayrollRecord record = employeePayrollRecords.get(modelRow);
+
+        StringBuilder details = new StringBuilder();
+
+        details.append("Payroll ID: ").append(record.getPayrollID()).append("\n");
+        details.append("Employee Number: ")
+                .append(record.getEmployee().getEmployeeNumber()).append("\n");
+        details.append("Employee Name: ")
+                .append(record.getEmployee().getFirstName()).append(" ")
+                .append(record.getEmployee().getLastName()).append("\n");
+        details.append("Payroll Date: ").append(record.getPayrollDate()).append("\n");
+        details.append("Cutoff: ").append(record.getCutoff()).append("\n\n");
+
+        details.append("EARNINGS\n");
+        details.append("Basic Salary: ").append(record.getBasicSalary()).append("\n");
+        details.append("Overtime Hours: ").append(record.getOvertimeHours()).append("\n");
+        details.append("Overtime Pay: ").append(record.getOvertimePay()).append("\n");
+        details.append("Allowances: ").append(record.getAllowances()).append("\n");
+        details.append("Other Income: ").append(record.getOtherIncome()).append("\n");
+        details.append("Total Earnings: ").append(record.getTotalEarnings()).append("\n\n");
+
+        details.append("DEDUCTIONS\n");
+        details.append("SSS: ").append(record.getSSSDeduction()).append("\n");
+        details.append("PhilHealth: ").append(record.getPhilHealthDeduction()).append("\n");
+        details.append("Pag-IBIG: ").append(record.getPagIBIGDeduction()).append("\n");
+        details.append("Withholding Tax: ").append(record.getWithholdingTax()).append("\n");
+        details.append("Loan Deduction: ").append(record.getLoanDeduction()).append("\n");
+        details.append("Other Deductions: ").append(record.getOtherDeductions()).append("\n");
+        details.append("Total Deductions: ").append(record.getTotalDeductions()).append("\n\n");
+
+        details.append("NET PAY\n");
+        details.append("Net Pay: ").append(record.getNetPay());
+
+        JTextArea textArea = new JTextArea(details.toString());
+        textArea.setEditable(false);
+        textArea.setFont(new Font("Monospaced", Font.PLAIN, 13));
+        textArea.setCaretPosition(0);
+
+        JScrollPane scrollPane = new JScrollPane(textArea);
+        scrollPane.setPreferredSize(new Dimension(480, 480));
+
+        JOptionPane.showMessageDialog(
+                this,
+                scrollPane,
+                "Payslip Details",
+                JOptionPane.INFORMATION_MESSAGE
+        );
     }
 
     private void addDetail(JPanel panel, String label, String value) {
         panel.add(new JLabel(label + ":"));
         panel.add(new JLabel(value == null ? "" : value));
-    }
-
-    private void loadPayslips() {
-        payslipModel.setRowCount(0);
-        File file = new File("data/Payroll.csv");
-        if (!file.exists()) return;
-        try (FileReader reader = new FileReader(file)) {
-            Iterable<CSVRecord> records = CSVFormat.DEFAULT.parse(reader);
-            int row = 0;
-            for (CSVRecord record : records) {
-                if (row++ == 0 || record.size() < 23) continue;
-                if (!record.get(1).trim().equalsIgnoreCase(employeeId)) continue;
-                payslipModel.addRow(new Object[]{record.get(0), record.get(6), record.get(7),
-                        record.get(14), record.get(21), record.get(22)});
-            }
-        } catch (Exception ex) {
-            JOptionPane.showMessageDialog(this, "Unable to load data/Payroll.csv: " + ex.getMessage(),
-                    "Payslip Error", JOptionPane.ERROR_MESSAGE);
-        }
     }
 }

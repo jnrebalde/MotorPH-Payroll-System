@@ -260,6 +260,104 @@ public class PayrollCSV {
         return matchingRows.size();
     }
 
+
+    /** Reconstructs saved payroll rows as PayrollRecord objects for payslips. */
+    public List<PayrollRecord> loadPayrollRecords(Path filePath, List<Employee> employees)
+            throws IOException {
+        if (filePath == null || employees == null) {
+            throw new IllegalArgumentException("Payroll file and employee list are required.");
+        }
+        List<PayrollRecord> records = new ArrayList<>();
+        if (!Files.exists(filePath) || Files.size(filePath) == 0) return records;
+        DefaultTableModel model = readCSV(filePath);
+
+        String[] names = {"Payroll ID", "Employee Number", "Payroll Date", "Cutoff",
+                "Regular Hours", "Overtime Hours", "Basic Salary", "Overtime Pay",
+                "Allowances", "Other Income", "SSS", "PhilHealth", "Pag-IBIG",
+                "Withholding Tax", "Loan Deduction", "Other Deductions"};
+        int[] columns = new int[names.length];
+        for (int i = 0; i < names.length; i++) {
+            columns[i] = columnIndex(model, names[i]);
+            if (columns[i] < 0) throw new IOException("Payroll.csv is missing required column: " + names[i]);
+        }
+
+        for (int row = 0; row < model.getRowCount(); row++) {
+            int csvRow = row + 2;
+            try {
+                String employeeNo = cell(model, row, columns[1]);
+                Employee employee = findEmployee(employees, employeeNo);
+                if (employee == null) throw new IllegalArgumentException(
+                        "Employee " + employeeNo + " was not found in employees.csv.");
+                PayrollRecord record = new PayrollRecord(
+                        cell(model, row, columns[0]), employee,
+                        java.time.LocalDate.parse(cell(model, row, columns[2])),
+                        PayrollCutoff.valueOf(cell(model, row, columns[3]).toUpperCase(java.util.Locale.ROOT)),
+                        decimal(model, row, columns[4]), decimal(model, row, columns[5]),
+                        decimal(model, row, columns[6]), decimal(model, row, columns[7]),
+                        decimal(model, row, columns[8]), decimal(model, row, columns[9]),
+                        decimal(model, row, columns[10]), decimal(model, row, columns[11]),
+                        decimal(model, row, columns[12]), decimal(model, row, columns[13]),
+                        decimal(model, row, columns[14]), decimal(model, row, columns[15]));
+                records.add(record);
+            } catch (RuntimeException ex) {
+                throw new IOException("Unable to reconstruct payroll record at CSV row "
+                        + csvRow + ": " + ex.getMessage(), ex);
+            }
+        }
+        return records;
+    }
+
+
+    public List<PayrollRecord> getPayrollRecordsByEmployee(
+            Path filePath,
+            String employeeNumber,
+            List<Employee> employees) throws IOException {
+
+        if (employeeNumber == null || employeeNumber.trim().isEmpty()) {
+            throw new IllegalArgumentException("Employee number is required.");
+        }
+
+        List<PayrollRecord> allRecords =
+                loadPayrollRecords(filePath, employees);
+
+        List<PayrollRecord> employeeRecords = new ArrayList<>();
+
+        for (PayrollRecord record : allRecords) {
+            if (record.getEmployee().getEmployeeNumber()
+                    .equalsIgnoreCase(employeeNumber.trim())) {
+
+                employeeRecords.add(record);
+            }
+        }
+
+        return employeeRecords;
+    }
+
+
+    private int columnIndex(DefaultTableModel model, String name) {
+        for (int column = 0; column < model.getColumnCount(); column++) {
+            if (name.equalsIgnoreCase(model.getColumnName(column).trim())) return column;
+        }
+        return -1;
+    }
+
+    private String cell(DefaultTableModel model, int row, int column) {
+        Object value = model.getValueAt(row, column);
+        return value == null ? "" : value.toString().trim();
+    }
+
+    private BigDecimal decimal(DefaultTableModel model, int row, int column) {
+        String value = cell(model, row, column).replace(",", "");
+        return value.isEmpty() ? BigDecimal.ZERO : new BigDecimal(value);
+    }
+
+    private Employee findEmployee(List<Employee> employees, String employeeNumber) {
+        for (Employee employee : employees) {
+            if (employee.getEmployeeNumber().equalsIgnoreCase(employeeNumber.trim())) return employee;
+        }
+        return null;
+    }
+
     /** Reads a CSV file and returns its contents as a table model. */
     public DefaultTableModel readCSV(Path filePath) throws IOException {
         if (filePath == null) {
