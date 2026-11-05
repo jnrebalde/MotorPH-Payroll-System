@@ -10,9 +10,10 @@ public class LoanDeduction extends Deduction {
         super(deductionName, description);
 
         if (loanAmount == null || deductionPerPayroll == null ||
-                loanAmount.compareTo(deductionPerPayroll) <= 0 ||
-                deductionPerPayroll.compareTo(loanAmount) <= 0) {
-            throw new IllegalArgumentException("Loan amount and deduction must be greater than 0.");
+                loanAmount.compareTo(BigDecimal.ZERO) <= 0 ||
+                deductionPerPayroll.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new IllegalArgumentException(
+                    "Loan amount and deduction must be greater than 0.");
         }
 
         if (deductionPerPayroll.compareTo(loanAmount) > 0) {
